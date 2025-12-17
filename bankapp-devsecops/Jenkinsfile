@@ -6,13 +6,10 @@ pipeline {
     }
 
     environment {
-        // Sonar
         SONAR_SCANNER_HOME = tool 'sonar-scanner'
-
-        // Nexus Docker Registry
         NEXUS_REGISTRY = "3.109.200.174:8082"
-        IMAGE_NAME     = "bankapp"
-        IMAGE_TAG      = "latest"
+        IMAGE_NAME = "bankapp"
+        IMAGE_TAG = "latest"
     }
 
     stages {
@@ -26,56 +23,67 @@ pipeline {
 
         stage('Compile') {
             steps {
-                sh 'mvn clean compile'
+                dir('bankapp-devsecops') {
+                    sh 'mvn clean compile'
+                }
             }
         }
 
         stage('Unit Tests') {
             steps {
-                sh 'mvn test'
+                dir('bankapp-devsecops') {
+                    sh 'mvn test'
+                }
             }
         }
 
         stage('Trivy File System Scan') {
             steps {
-                sh '''
-                  echo "Running Trivy FS scan..."
-                  trivy fs --exit-code 0 --severity LOW,MEDIUM .
-                  trivy fs --exit-code 1 --severity HIGH,CRITICAL .
-                '''
+                dir('bankapp-devsecops') {
+                    sh '''
+                      trivy fs --exit-code 0 --severity LOW,MEDIUM .
+                      trivy fs --exit-code 1 --severity HIGH,CRITICAL .
+                    '''
+                }
             }
         }
 
         stage('OWASP Dependency Check') {
             steps {
-                dependencyCheck additionalArguments: '''
-                    --scan .
-                    --format HTML
-                    --out dependency-check-report
-                ''',
-                odcInstallation: 'dependency-check'
+                dir('bankapp-devsecops') {
+                    dependencyCheck additionalArguments: '''
+                      --scan .
+                      --format HTML
+                      --out dependency-check-report
+                    ''',
+                    odcInstallation: 'dependency-check'
+                }
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv('sonar-server') {
-                    sh """
-                      ${SONAR_SCANNER_HOME}/bin/sonar-scanner \
-                      -Dsonar.projectKey=bankapp \
-                      -Dsonar.projectName=bankapp \
-                      -Dsonar.sources=. \
-                      -Dsonar.java.binaries=target
-                    """
+                dir('bankapp-devsecops') {
+                    withSonarQubeEnv('sonar-server') {
+                        sh """
+                          ${SONAR_SCANNER_HOME}/bin/sonar-scanner \
+                          -Dsonar.projectKey=bankapp \
+                          -Dsonar.projectName=bankapp \
+                          -Dsonar.sources=. \
+                          -Dsonar.java.binaries=target
+                        """
+                    }
                 }
             }
         }
 
         stage('Docker Build') {
             steps {
-                sh """
-                  docker build -t ${NEXUS_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} .
-                """
+                dir('bankapp-devsecops') {
+                    sh """
+                      docker build -t ${NEXUS_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} .
+                    """
+                }
             }
         }
 
@@ -85,9 +93,11 @@ pipeline {
                     credentialsId: 'docker-cred-id',
                     url: "http://${NEXUS_REGISTRY}"
                 ) {
-                    sh """
-                      docker push ${NEXUS_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
-                    """
+                    dir('bankapp-devsecops') {
+                        sh """
+                          docker push ${NEXUS_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                        """
+                    }
                 }
             }
         }
@@ -98,7 +108,7 @@ pipeline {
             echo "✅ DevSecOps pipeline completed successfully"
         }
         failure {
-            echo "❌ Pipeline failed — check stage logs"
+            echo "❌ Pipeline failed — check logs"
         }
         always {
             sh 'docker system prune -f || true'
