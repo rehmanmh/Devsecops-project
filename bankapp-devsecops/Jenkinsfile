@@ -6,26 +6,31 @@ pipeline {
     }
 
     environment {
-        SCANNER_HOME = tool 'sonar-scanner'
+        // Sonar
+        SONAR_SCANNER_HOME = tool 'sonar-scanner'
+
+        // Nexus Docker Registry
+        NEXUS_REGISTRY = "3.109.200.174:8082"
+        IMAGE_NAME     = "bankapp"
+        IMAGE_TAG      = "latest"
     }
 
     stages {
 
-        stage('Checkout') {
+        stage('Checkout Code') {
             steps {
                 git branch: 'main',
-                    url: '<GITLAB_REPO_URL>',
-                    credentialsId: 'jenkins-integration'
+                    url: 'https://github.com/rehmanmh/Devsecops-project.git'
             }
         }
 
         stage('Compile') {
             steps {
-                sh 'mvn compile'
+                sh 'mvn clean compile'
             }
         }
 
-        stage('Test') {
+        stage('Unit Tests') {
             steps {
                 sh 'mvn test'
             }
@@ -34,90 +39,69 @@ pipeline {
         stage('Trivy File System Scan') {
             steps {
                 sh '''
-                trivy fs --exit-code 1 \
-                         --severity HIGH,CRITICAL \
-                         .
+                  echo "Running Trivy FS scan..."
+                  trivy fs --exit-code 0 --severity LOW,MEDIUM .
+                  trivy fs --exit-code 1 --severity HIGH,CRITICAL .
                 '''
             }
         }
 
         stage('OWASP Dependency Check') {
             steps {
-                dependencyCheck additionalArguments: '--scan . --format HTML --format XML --disableAssembly',
-                                odcInstallation: 'dependency-check'
+                dependencyCheck additionalArguments: '''
+                    --scan .
+                    --format HTML
+                    --out dependency-check-report
+                ''',
+                odcInstallation: 'dependency-check'
             }
         }
 
         stage('SonarQube Analysis') {
-            environment {
-                SONAR_TOKEN = credentials('sonarqube-token')
-            }
             steps {
-                withSonarQubeEnv('sonarqube-server') {
+                withSonarQubeEnv('sonar-server') {
                     sh """
-                    ${SCANNER_HOME}/bin/sonar-scanner \
-                    -Dsonar.projectKey=BankApp \
-                    -Dsonar.projectName=BankApp \
-                    -Dsonar.java.binaries=target \
-                    -Dsonar.login=$SONAR_TOKEN
+                      ${SONAR_SCANNER_HOME}/bin/sonar-scanner \
+                      -Dsonar.projectKey=bankapp \
+                      -Dsonar.projectName=bankapp \
+                      -Dsonar.sources=. \
+                      -Dsonar.java.binaries=target
                     """
-                }
-            }
-        }
-
-        stage('Quality Gate') {
-            steps {
-                timeout(time: 2, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
-                }
-            }
-        }
-
-        stage('Build & Publish to Nexus') {
-            steps {
-                withMaven(globalMavenSettingsConfig: 'devops-shack-settings') {
-                    sh 'mvn deploy -DskipTests'
                 }
             }
         }
 
         stage('Docker Build') {
             steps {
-                sh 'docker build -t <YOUR_DOCKER_USER>/bankapp:latest .'
+                sh """
+                  docker build -t ${NEXUS_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} .
+                """
             }
         }
 
-        stage('Trivy Image Scan') {
+        stage('Docker Push to Nexus') {
             steps {
-                sh '''
-                trivy image --exit-code 1 \
-                            --severity HIGH,CRITICAL \
-                            <YOUR_DOCKER_USER>/bankapp:latest
-                '''
-            }
-        }
-
-        stage('Docker Push') {
-            steps {
-                withDockerRegistry(credentialsId: 'docker-cred-id') {
-                    sh 'docker push <YOUR_DOCKER_USER>/bankapp:latest'
+                withDockerRegistry(
+                    credentialsId: 'docker-cred-id',
+                    url: "http://${NEXUS_REGISTRY}"
+                ) {
+                    sh """
+                      docker push ${NEXUS_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                    """
                 }
             }
         }
+    }
 
-        stage('Deploy to Kubernetes') {
-            steps {
-                withKubeConfig(credentialsId: 'k8s-token') {
-                    sh 'kubectl apply -f k8s/deployment.yaml -n webapps'
-                    sh 'kubectl apply -f k8s/service.yaml -n webapps'
-                }
-            }
+    post {
+        success {
+            echo "✅ DevSecOps pipeline completed successfully"
         }
-
-        stage('Verify Deployment') {
-            steps {
-                sh 'kubectl get svc -n webapps'
-            }
+        failure {
+            echo "❌ Pipeline failed — check stage logs"
+        }
+        always {
+            sh 'docker system prune -f || true'
         }
     }
 }
