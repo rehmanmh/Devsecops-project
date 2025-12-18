@@ -147,7 +147,15 @@ pipeline {
             }
         }
 
-        stage('Push Docker Image') {
-            steps {
-                withDockerRegistry(
-                    credentialsId: 'doc
+       stage('Push Docker Image') {
+    steps {
+        withDockerRegistry(
+            credentialsId: 'docker-cred-id',
+            url: "${REGISTRY_URL}"
+        ) {
+            sh """
+              docker push ${IMAGE_NAME}:${IMAGE_TAG}
+            """
+        }
+    }
+}
