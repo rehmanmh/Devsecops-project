@@ -22,13 +22,17 @@ pipeline {
 
         stage('Compile') {
             steps {
-                sh 'mvn compile'
+                dir('bankapp-devsecops') {
+                    sh 'mvn compile'
+                }
             }
         }
 
         stage('Test') {
             steps {
-                sh 'mvn test'
+                dir('bankapp-devsecops') {
+                    sh 'mvn test'
+                }
             }
         }
 
@@ -38,34 +42,40 @@ pipeline {
 
         stage('File System Scan (Trivy)') {
             steps {
-                sh '''
-                  trivy fs --exit-code 0 --severity LOW,MEDIUM .
-                  trivy fs --exit-code 1 --severity HIGH,CRITICAL .
-                '''
+                dir('bankapp-devsecops') {
+                    sh '''
+                      trivy fs --exit-code 0 --severity LOW,MEDIUM .
+                      trivy fs --exit-code 1 --severity HIGH,CRITICAL .
+                    '''
+                }
             }
         }
 
         stage('OWASP Dependency Check') {
             steps {
-                dependencyCheck additionalArguments: '''
-                  --scan .
-                  --format HTML
-                  --out dependency-check-report
-                ''',
-                odcInstallation: 'dependency-check'
+                dir('bankapp-devsecops') {
+                    dependencyCheck additionalArguments: '''
+                      --scan .
+                      --format HTML
+                      --out dependency-check-report
+                    ''',
+                    odcInstallation: 'dependency-check'
+                }
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv('sonar-server') {
-                    sh """
-                      ${SCANNER_HOME}/bin/sonar-scanner \
-                      -Dsonar.projectKey=BankApp \
-                      -Dsonar.projectName=BankApp \
-                      -Dsonar.sources=. \
-                      -Dsonar.java.binaries=target
-                    """
+                dir('bankapp-devsecops') {
+                    withSonarQubeEnv('sonar-server') {
+                        sh """
+                          ${SCANNER_HOME}/bin/sonar-scanner \
+                          -Dsonar.projectKey=BankApp \
+                          -Dsonar.projectName=BankApp \
+                          -Dsonar.sources=. \
+                          -Dsonar.java.binaries=target
+                        """
+                    }
                 }
             }
         }
@@ -76,7 +86,9 @@ pipeline {
 
         stage('Build Application') {
             steps {
-                sh 'mvn package'
+                dir('bankapp-devsecops') {
+                    sh 'mvn package'
+                }
             }
         }
 
@@ -86,11 +98,13 @@ pipeline {
 
         stage('Build & Tag Docker Image') {
             steps {
-                script {
-                    withDockerRegistry(credentialsId: 'docker-cred-id') {
-                        sh """
-                          docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                        """
+                dir('bankapp-devsecops') {
+                    script {
+                        withDockerRegistry(credentialsId: 'docker-cred-id') {
+                            sh """
+                              docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                            """
+                        }
                     }
                 }
             }
