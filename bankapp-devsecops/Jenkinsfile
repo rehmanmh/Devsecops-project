@@ -40,13 +40,19 @@ pipeline {
            SECURITY – CODE LEVEL
            ======================= */
 
-        stage('File System Scan (Trivy)') {
+        stage('Trivy FS Scan') {
             steps {
                 dir('bankapp-devsecops') {
                     sh '''
-                      trivy fs --exit-code 0 --severity LOW,MEDIUM .
+                      trivy fs --format html -o trivy-fs.html .
                       trivy fs --exit-code 1 --severity HIGH,CRITICAL .
                     '''
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'bankapp-devsecops/trivy-fs.html',
+                                     fingerprint: true
                 }
             }
         }
@@ -62,6 +68,12 @@ pipeline {
                     odcInstallation: 'dependency-check'
                 }
             }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'bankapp-devsecops/dependency-check-report/**',
+                                     fingerprint: true
+                }
+            }
         }
 
         stage('SonarQube Analysis') {
@@ -70,18 +82,27 @@ pipeline {
                     withSonarQubeEnv('sonar-server') {
                         sh """
                           ${SCANNER_HOME}/bin/sonar-scanner \
-                          -Dsonar.projectKey=BankApp \
-                          -Dsonar.projectName=BankApp \
+                          -Dsonar.projectKey=bankapp \
+                          -Dsonar.projectName=bankapp \
                           -Dsonar.sources=. \
-                          -Dsonar.java.binaries=target
+                          -Dsonar.java.binaries=target \
+                          -Dsonar.exclusions=dependency-check-report/**
                         """
                     }
                 }
             }
         }
 
+        stage('Sonar Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
         /* =======================
-           BUILD ARTIFACT
+           BUILD & CONTAINERIZE
            ======================= */
 
         stage('Build Application') {
@@ -92,49 +113,59 @@ pipeline {
             }
         }
 
-        /* =======================
-           CONTAINERIZATION
-           ======================= */
-
-        stage('Build & Tag Docker Image') {
+        stage('Build Docker Image') {
             steps {
                 dir('bankapp-devsecops') {
-                    script {
-                        withDockerRegistry(credentialsId: 'docker-cred-id') {
-                            sh """
-                              docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                            """
-                        }
+                    withDockerRegistry(credentialsId: 'docker-cred-id') {
+                        sh """
+                          docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                        """
                     }
                 }
             }
         }
 
-        stage('Scan Docker Image (Trivy)') {
+        stage('Trivy Image Scan') {
             steps {
                 sh """
-                  trivy image --exit-code 0 --severity LOW,MEDIUM \
+                  trivy image --format html -o trivy-image.html \
                   ${IMAGE_NAME}:${IMAGE_TAG}
 
                   trivy image --exit-code 1 --severity HIGH,CRITICAL \
                   ${IMAGE_NAME}:${IMAGE_TAG}
                 """
             }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-image.html',
+                                     fingerprint: true
+                }
+            }
         }
 
         stage('Push Docker Image') {
             steps {
-                script {
-                    withDockerRegistry(
-                        credentialsId: 'docker-cred-id',
-                        url: "http://3.109.200.174:8082"
-                    ) {
-                        sh """
-                          docker push ${IMAGE_NAME}:${IMAGE_TAG}
-                        """
-                    }
+                withDockerRegistry(
+                    credentialsId: 'docker-cred-id',
+                    url: "http://3.109.200.174:8082"
+                ) {
+                    sh """
+                      docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                    """
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Secure DevSecOps pipeline completed successfully"
+        }
+        failure {
+            echo "❌ Pipeline failed due to security or quality gate"
+        }
+        always {
+            sh 'docker system prune -f || true'
         }
     }
 }
