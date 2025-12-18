@@ -9,6 +9,7 @@ pipeline {
         SCANNER_HOME = tool 'sonar-scanner'
         IMAGE_NAME   = "3.109.200.174:8082/bankapp"
         IMAGE_TAG    = "${BUILD_NUMBER}"
+        REGISTRY_URL = "http://3.109.200.174:8082"
     }
 
     stages {
@@ -116,7 +117,10 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 dir('bankapp-devsecops') {
-                    withDockerRegistry(credentialsId: 'docker-cred-id') {
+                    withDockerRegistry(
+                        credentialsId: 'docker-cred-id',
+                        url: "${REGISTRY_URL}"
+                    ) {
                         sh """
                           docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
                         """
@@ -146,26 +150,4 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 withDockerRegistry(
-                    credentialsId: 'docker-cred-id',
-                    url: "http://3.109.200.174:8082"
-                ) {
-                    sh """
-                      docker push ${IMAGE_NAME}:${IMAGE_TAG}
-                    """
-                }
-            }
-        }
-    }
-
-    post {
-        success {
-            echo "✅ Secure DevSecOps pipeline completed successfully"
-        }
-        failure {
-            echo "❌ Pipeline failed due to security or quality gate"
-        }
-        always {
-            sh 'docker system prune -f || true'
-        }
-    }
-}
+                    credentialsId: 'doc
