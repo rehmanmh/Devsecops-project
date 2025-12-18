@@ -2,19 +2,18 @@ pipeline {
     agent any
 
     tools {
-        maven 'maven3'
+        maven 'Maven 3'
     }
 
     environment {
-        SONAR_SCANNER_HOME = tool 'sonar-scanner'
-        NEXUS_REGISTRY = "3.109.200.174:8082"
-        IMAGE_NAME = "bankapp"
-        IMAGE_TAG = "latest"
+        SCANNER_HOME = tool 'sonar-scanner'
+        IMAGE_NAME   = "3.109.200.174:8082/bankapp"
+        IMAGE_TAG    = "${BUILD_NUMBER}"
     }
 
     stages {
 
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
                 git branch: 'main',
                     url: 'https://github.com/rehmanmh/Devsecops-project.git'
@@ -23,95 +22,105 @@ pipeline {
 
         stage('Compile') {
             steps {
-                dir('bankapp-devsecops') {
-                    sh 'mvn clean compile'
-                }
+                sh 'mvn compile'
             }
         }
 
-        stage('Unit Tests') {
+        stage('Test') {
             steps {
-                dir('bankapp-devsecops') {
-                    sh 'mvn test'
-                }
+                sh 'mvn test'
             }
         }
 
-        stage('Trivy File System Scan') {
+        /* =======================
+           SECURITY – CODE LEVEL
+           ======================= */
+
+        stage('File System Scan (Trivy)') {
             steps {
-                dir('bankapp-devsecops') {
-                    sh '''
-                      trivy fs --exit-code 0 --severity LOW,MEDIUM .
-                      trivy fs --exit-code 1 --severity HIGH,CRITICAL .
-                    '''
-                }
+                sh '''
+                  trivy fs --exit-code 0 --severity LOW,MEDIUM .
+                  trivy fs --exit-code 1 --severity HIGH,CRITICAL .
+                '''
             }
         }
 
         stage('OWASP Dependency Check') {
             steps {
-                dir('bankapp-devsecops') {
-                    dependencyCheck additionalArguments: '''
-                      --scan .
-                      --format HTML
-                      --out dependency-check-report
-                    ''',
-                    odcInstallation: 'dependency-check'
-                }
+                dependencyCheck additionalArguments: '''
+                  --scan .
+                  --format HTML
+                  --out dependency-check-report
+                ''',
+                odcInstallation: 'dependency-check'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                dir('bankapp-devsecops') {
-                    withSonarQubeEnv('sonar-server') {
-                        sh """
-                          ${SONAR_SCANNER_HOME}/bin/sonar-scanner \
-                          -Dsonar.projectKey=bankapp \
-                          -Dsonar.projectName=bankapp \
-                          -Dsonar.sources=. \
-                          -Dsonar.java.binaries=target
-                        """
-                    }
-                }
-            }
-        }
-
-        stage('Docker Build') {
-            steps {
-                dir('bankapp-devsecops') {
+                withSonarQubeEnv('sonar-server') {
                     sh """
-                      docker build -t ${NEXUS_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} .
+                      ${SCANNER_HOME}/bin/sonar-scanner \
+                      -Dsonar.projectKey=BankApp \
+                      -Dsonar.projectName=BankApp \
+                      -Dsonar.sources=. \
+                      -Dsonar.java.binaries=target
                     """
                 }
             }
         }
 
-        stage('Docker Push to Nexus') {
+        /* =======================
+           BUILD ARTIFACT
+           ======================= */
+
+        stage('Build Application') {
             steps {
-                withDockerRegistry(
-                    credentialsId: 'docker-cred-id',
-                    url: "http://${NEXUS_REGISTRY}"
-                ) {
-                    dir('bankapp-devsecops') {
+                sh 'mvn package'
+            }
+        }
+
+        /* =======================
+           CONTAINERIZATION
+           ======================= */
+
+        stage('Build & Tag Docker Image') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-cred-id') {
                         sh """
-                          docker push ${NEXUS_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                          docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
                         """
                     }
                 }
             }
         }
-    }
 
-    post {
-        success {
-            echo "✅ DevSecOps pipeline completed successfully"
+        stage('Scan Docker Image (Trivy)') {
+            steps {
+                sh """
+                  trivy image --exit-code 0 --severity LOW,MEDIUM \
+                  ${IMAGE_NAME}:${IMAGE_TAG}
+
+                  trivy image --exit-code 1 --severity HIGH,CRITICAL \
+                  ${IMAGE_NAME}:${IMAGE_TAG}
+                """
+            }
         }
-        failure {
-            echo "❌ Pipeline failed — check logs"
-        }
-        always {
-            sh 'docker system prune -f || true'
+
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    withDockerRegistry(
+                        credentialsId: 'docker-cred-id',
+                        url: "http://3.109.200.174:8082"
+                    ) {
+                        sh """
+                          docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                        """
+                    }
+                }
+            }
         }
     }
 }
