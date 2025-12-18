@@ -53,18 +53,14 @@ pipeline {
             steps {
                 dir('bankapp-devsecops') {
                     sh '''
-                      trivy fs \
-                        --format template \
-                        --template "@contrib/html.tpl" \
-                        -o trivy-fs.html .
-
+                      trivy fs --format table -o fs.html .
                       trivy fs --exit-code 1 --severity HIGH,CRITICAL .
                     '''
                 }
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'bankapp-devsecops/trivy-fs.html',
+                    archiveArtifacts artifacts: 'bankapp-devsecops/fs.html',
                                      fingerprint: true
                 }
             }
@@ -148,19 +144,16 @@ pipeline {
         stage('Trivy Image Scan') {
             steps {
                 sh """
-                  trivy image \
-                    --format template \
-                    --template "@contrib/html.tpl" \
-                    -o trivy-image.html \
-                    ${IMAGE_NAME}:${IMAGE_TAG}
+                  trivy image --format table -o image.html \
+                  ${IMAGE_NAME}:${IMAGE_TAG}
 
                   trivy image --exit-code 1 --severity HIGH,CRITICAL \
-                    ${IMAGE_NAME}:${IMAGE_TAG}
+                  ${IMAGE_NAME}:${IMAGE_TAG}
                 """
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'trivy-image.html',
+                    archiveArtifacts artifacts: 'image.html',
                                      fingerprint: true
                 }
             }
@@ -182,13 +175,14 @@ pipeline {
 
     post {
         success {
-            echo "✅ Secure DevSecOps pipeline completed successfully"
+            echo "✅ DevSecOps pipeline completed successfully"
         }
         failure {
-            echo "❌ Pipeline failed due to security, quality gate, or build error"
+            echo "❌ Pipeline failed — check logs"
         }
         always {
             sh 'docker system prune -f || true'
         }
     }
 }
+
