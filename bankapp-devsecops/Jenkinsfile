@@ -14,12 +14,20 @@ pipeline {
 
     stages {
 
+        /* =======================
+           SOURCE
+           ======================= */
+
         stage('Checkout') {
             steps {
                 git branch: 'main',
                     url: 'https://github.com/rehmanmh/Devsecops-project.git'
             }
         }
+
+        /* =======================
+           BUILD
+           ======================= */
 
         stage('Compile') {
             steps {
@@ -37,11 +45,19 @@ pipeline {
             }
         }
 
+        /* =======================
+           SECURITY – CODE LEVEL
+           ======================= */
+
         stage('Trivy FS Scan') {
             steps {
                 dir('bankapp-devsecops') {
                     sh '''
-                      trivy fs --format html -o trivy-fs.html .
+                      trivy fs \
+                        --format template \
+                        --template "@contrib/html.tpl" \
+                        -o trivy-fs.html .
+
                       trivy fs --exit-code 1 --severity HIGH,CRITICAL .
                     '''
                 }
@@ -73,6 +89,10 @@ pipeline {
             }
         }
 
+        /* =======================
+           CODE QUALITY
+           ======================= */
+
         stage('SonarQube Analysis') {
             steps {
                 dir('bankapp-devsecops') {
@@ -97,6 +117,10 @@ pipeline {
                 }
             }
         }
+
+        /* =======================
+           PACKAGE & CONTAINERIZE
+           ======================= */
 
         stage('Build Application') {
             steps {
@@ -124,11 +148,14 @@ pipeline {
         stage('Trivy Image Scan') {
             steps {
                 sh """
-                  trivy image --format html -o trivy-image.html \
-                  ${IMAGE_NAME}:${IMAGE_TAG}
+                  trivy image \
+                    --format template \
+                    --template "@contrib/html.tpl" \
+                    -o trivy-image.html \
+                    ${IMAGE_NAME}:${IMAGE_TAG}
 
                   trivy image --exit-code 1 --severity HIGH,CRITICAL \
-                  ${IMAGE_NAME}:${IMAGE_TAG}
+                    ${IMAGE_NAME}:${IMAGE_TAG}
                 """
             }
             post {
@@ -152,5 +179,16 @@ pipeline {
             }
         }
     }
-}
 
+    post {
+        success {
+            echo "✅ Secure DevSecOps pipeline completed successfully"
+        }
+        failure {
+            echo "❌ Pipeline failed due to security, quality gate, or build error"
+        }
+        always {
+            sh 'docker system prune -f || true'
+        }
+    }
+}
