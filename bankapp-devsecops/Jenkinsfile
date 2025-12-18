@@ -37,10 +37,6 @@ pipeline {
             }
         }
 
-        /* =======================
-           SECURITY – CODE LEVEL
-           ======================= */
-
         stage('Trivy FS Scan') {
             steps {
                 dir('bankapp-devsecops') {
@@ -102,10 +98,6 @@ pipeline {
             }
         }
 
-        /* =======================
-           BUILD & CONTAINERIZE
-           ======================= */
-
         stage('Build Application') {
             steps {
                 dir('bankapp-devsecops') {
@@ -147,15 +139,18 @@ pipeline {
             }
         }
 
-       stage('Push Docker Image') {
-    steps {
-        withDockerRegistry(
-            credentialsId: 'docker-cred-id',
-            url: "${REGISTRY_URL}"
-        ) {
-            sh """
-              docker push ${IMAGE_NAME}:${IMAGE_TAG}
-            """
+        stage('Push Docker Image') {
+            steps {
+                withDockerRegistry(
+                    credentialsId: 'docker-cred-id',
+                    url: "${REGISTRY_URL}"
+                ) {
+                    sh """
+                      docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                    """
+                }
+            }
         }
     }
 }
+
