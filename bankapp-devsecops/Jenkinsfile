@@ -142,7 +142,7 @@ pipeline {
             steps {
                 dir('bankapp-devsecops') {
                     withDockerRegistry(
-                        credentialsId: 'docker-cred-id',
+                        credentialsId: 'ad620271-17a4-496d-bab5-19e513d2dfa2',
                         url: "${REGISTRY_URL}"
                     ) {
                         sh """
@@ -174,7 +174,7 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 withDockerRegistry(
-                    credentialsId: 'docker-cred-id',
+                    credentialsId: 'ad620271-17a4-496d-bab5-19e513d2dfa2',
                     url: "${REGISTRY_URL}"
                 ) {
                     sh """
